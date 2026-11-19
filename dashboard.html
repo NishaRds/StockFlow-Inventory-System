@@ -11,15 +11,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 
   <script>
-    (() => {
-      const users = JSON.parse(localStorage.getItem("sf_users") || "[]");
-      const session = localStorage.getItem("sf_session");
-      const user = users.find(u => String(u.id) === String(session));
-
-      if (!user) {
-        window.location.replace("index.html");
-      }
-    })();
+    if (!localStorage.getItem("sf_user")) window.location.replace("index.html");
   </script>
 </head>
 <body>

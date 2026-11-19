@@ -1,16 +1,22 @@
 // STOCKFLOW MAIN APPLICATION
 
-const users = safeParseStorage("sf_users", []);
-const sessionId = localStorage.getItem("sf_session");
+const currentUser = JSON.parse(localStorage.getItem("sf_user") || "null");
+const users = currentUser ? [currentUser] : [];
 
-const currentUser = users.find(user =>
-  String(user.id) === String(sessionId)
-);
+const API = "http://127.0.0.1:3000/api";
+let serverProducts = [];
 
 if (!currentUser) {
   window.location.replace("index.html");
 } else {
-  startApp();
+  const firstShopId = currentUser.role === "staff" ? currentUser.ownerId : currentUser.id;
+  fetch(API + "/products/" + firstShopId)
+    .then(r => r.json())
+    .then(rows => {
+      serverProducts = rows.map(p => ({ ...p, limit: p.lowLimit }));
+      startApp();
+    })
+    .catch(() => alert("Cannot reach the server. Is it running?"));
 }
 
 function safeParseStorage(key, fallback) {
@@ -26,7 +32,7 @@ function startApp() {
   const customerKey = "sf_customers_" + shopId;
   const salesKey = "sf_sales_" + shopId;
 
-  let products = safeParseStorage(productKey, []);
+  let products = serverProducts;
   let customers = safeParseStorage(customerKey, []);
   let sales = safeParseStorage(salesKey, []);
   if (!Array.isArray(products)) products = [];
@@ -40,7 +46,11 @@ function startApp() {
   let editingProductId = null;
 
   function saveProducts() {
-    localStorage.setItem(productKey, JSON.stringify(products));
+    fetch(API + "/products-sync/" + shopId, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(products.map(p => ({ ...p, lowLimit: p.limit })))
+    }).catch(() => alert("Could not save products. Is the server running?"));
   }
 
   function saveCustomers() {
@@ -341,39 +351,36 @@ function startApp() {
   const staffModal = document.getElementById("staffModal");
   const staffForm = document.getElementById("staffForm");
 
-  function saveUsers() {
-    localStorage.setItem("sf_users", JSON.stringify(users));
-  }
-
   function renderStaff() {
     const body = document.getElementById("staffBody");
-    const myStaff = users.filter(u => u.role === "staff" && u.ownerId === currentUser.id);
 
-    if (myStaff.length === 0) {
-      body.innerHTML = '<tr><td colspan="3" class="empty-cell">No staff added yet.</td></tr>';
-      return;
-    }
+    fetch(API + "/staff/" + currentUser.id)
+      .then(r => r.json())
+      .then(myStaff => {
+        if (myStaff.length === 0) {
+          body.innerHTML = '<tr><td colspan="3" class="empty-cell">No staff added yet.</td></tr>';
+          return;
+        }
 
-    body.innerHTML = myStaff.map(s => `
-      <tr>
-        <td><strong>${escapeHTML(s.ownerName)}</strong></td>
-        <td>${escapeHTML(s.username)}</td>
-        <td><button class="action-btn delete" data-delete-staff="${s.id}">Remove</button></td>
-      </tr>
-    `).join("");
+        body.innerHTML = myStaff.map(s => `
+          <tr>
+            <td><strong>${escapeHTML(s.ownerName)}</strong></td>
+            <td>${escapeHTML(s.username)}</td>
+            <td><button class="action-btn delete" data-delete-staff="${s.id}" data-staff-name="${escapeHTML(s.ownerName)}">Remove</button></td>
+          </tr>
+        `).join("");
 
-    body.querySelectorAll("[data-delete-staff]").forEach(button => {
-      button.addEventListener("click", () => removeStaff(button.dataset.deleteStaff));
-    });
+        body.querySelectorAll("[data-delete-staff]").forEach(button => {
+          button.addEventListener("click", () => removeStaff(button.dataset.deleteStaff, button.dataset.staffName));
+        });
+      })
+      .catch(() => alert("Cannot reach the server. Is it running?"));
   }
 
-  function removeStaff(id) {
-    const index = users.findIndex(u => u.id === id && u.role === "staff" && u.ownerId === currentUser.id);
-    if (index === -1) return;
-    if (!confirm("Remove " + users[index].ownerName + "? They will no longer be able to log in.")) return;
-    users.splice(index, 1);
-    saveUsers();
-    renderStaff();
+  function removeStaff(id, name) {
+    if (!confirm("Remove " + name + "? They will no longer be able to log in.")) return;
+    fetch(API + "/staff/" + id, { method: "DELETE" })
+      .then(() => renderStaff());
   }
 
   document.getElementById("openAddStaff").addEventListener("click", () => {
@@ -393,36 +400,19 @@ function startApp() {
       return;
     }
 
-    // A staff username can never match any existing username or email (owner or staff)
-    const taken = users.some(u =>
-      String(u.username || "").toLowerCase() === username.toLowerCase() ||
-      String(u.email || "").toLowerCase() === username.toLowerCase()
-    );
-    if (taken) {
-      alert("This username is already used. Please choose another one.");
-      return;
-    }
-
-    users.push({
-      id: Date.now().toString(),
-      role: "staff",
-      ownerId: currentUser.id,
-      ownerName: name,
-      username,
-      email: "",
-      password,
-      shopName: currentUser.shopName,
-      shopType: currentUser.shopType,
-      ownerPhone: currentUser.ownerPhone,
-      phone: currentUser.phone,
-      address: currentUser.address,
-      pincode: currentUser.pincode
-    });
-
-    saveUsers();
-    staffForm.reset();
-    staffModal.classList.add("hidden");
-    renderStaff();
+    fetch(API + "/staff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerId: currentUser.id, name, username, password })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { alert(data.error); return; }
+        staffForm.reset();
+        staffModal.classList.add("hidden");
+        renderStaff();
+      })
+      .catch(() => alert("Cannot reach the server. Is it running?"));
   });
 
   // HIDE OWNER-ONLY MENU ITEMS FROM STAFF
@@ -440,7 +430,7 @@ function startApp() {
     const confirmed = confirm("Are you sure you want to log out?");
 
     if (confirmed) {
-      localStorage.removeItem("sf_session");
+      localStorage.removeItem("sf_user");
       window.location.href = "index.html";
     }
   });

@@ -1,3 +1,5 @@
+const API = "http://127.0.0.1:3000/api";
+
 // STOCKFLOW AUTHENTICATION
 
 const USERS_KEY = "sf_users";
@@ -245,41 +247,20 @@ document.getElementById("registerForm").addEventListener("submit", event => {
     return;
   }
 
-  const users = getUsers();
-
-  const alreadyExists = users.some(user =>
-    user.email.toLowerCase() === email ||
-    user.username.toLowerCase() === username.toLowerCase()
-  );
-
-  if (alreadyExists) {
-    showMessage("registerMessage", "This email or username is already registered.");
-    return;
-  }
-
-  const newUser = {
-    id: Date.now().toString(),
-    shopName,
-    ownerName,
-    shopType,
-    ownerPhone,
-    phone,
-    address,
-    pincode,
-    email,
-    username,
-    password
-  };
-
-  users.push(newUser);
-  saveUsers(users);
-
-  document.getElementById("registerForm").reset();
-  showView("login");
-
-  document.getElementById("loginId").value = username;
-
-  showMessage("authMessage", "Account created successfully. You can now log in.", "success");
+  fetch(API + "/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shopName, ownerName, shopType, ownerPhone, phone, address, pincode, email, username, password })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) return showMessage("registerMessage", data.error);
+      document.getElementById("registerForm").reset();
+      showView("login");
+      document.getElementById("loginId").value = username;
+      showMessage("authMessage", "Account created successfully. You can now log in.", "success");
+    })
+    .catch(() => showMessage("registerMessage", "Cannot reach the server. Is it running?"));
 });
 
 // LOGIN
@@ -290,20 +271,18 @@ document.getElementById("loginForm").addEventListener("submit", event => {
   const loginId = document.getElementById("loginId").value.trim().toLowerCase();
   const password = document.getElementById("loginPass").value;
 
-  const users = getUsers();
-
-  const user = users.find(item =>
-    item.username.toLowerCase() === loginId ||
-    item.email.toLowerCase() === loginId
-  );
-
-  if (!user || user.password !== password) {
-    showMessage("authMessage", "Incorrect username, email or password.");
-    return;
-  }
-
-  localStorage.setItem("sf_session", user.id);
-  window.location.href = "dashboard.html";
+  fetch(API + "/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ loginId, password })
+  })
+    .then(r => r.json())
+    .then(user => {
+      if (user.error) return showMessage("authMessage", user.error);
+      localStorage.setItem("sf_user", JSON.stringify(user));
+      window.location.href = "dashboard.html";
+    })
+    .catch(() => showMessage("authMessage", "Cannot reach the server. Is it running?"));
 });
 
 renderStaffLogins();
