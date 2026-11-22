@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
+require('./seed')(db);
 
 const app = express();
 app.set('trust proxy', 1);
