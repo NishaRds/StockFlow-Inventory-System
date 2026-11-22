@@ -3,6 +3,20 @@
 const currentUser = JSON.parse(localStorage.getItem("sf_user") || "null");
 const users = currentUser ? [currentUser] : [];
 
+// Sends the login token with every request; sends the user back to login if it expired
+function authFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}), Authorization: "Bearer " + (currentUser ? currentUser.token || "" : "") };
+  return fetch(url, { ...options, headers }).then(res => {
+    if (res.status === 401) {
+      localStorage.removeItem("sf_user");
+      alert("Your session has expired. Please log in again.");
+      window.location.replace("index.html");
+      return new Promise(() => {}); // stop here, page is leaving
+    }
+    return res;
+  });
+}
+
 // Change this one line when the backend is hosted online
 const API = window.STOCKFLOW_API || "http://localhost:3000/api";
 let serverProducts = [];
@@ -14,9 +28,9 @@ if (!currentUser) {
 } else {
   const firstShopId = currentUser.role === "staff" ? currentUser.ownerId : currentUser.id;
   Promise.all([
-    fetch(API + "/products/" + firstShopId).then(r => r.json()),
-    fetch(API + "/customers/" + firstShopId).then(r => r.json()),
-    fetch(API + "/sales/" + firstShopId).then(r => r.json())
+    authFetch(API + "/products/" + firstShopId).then(r => r.json()),
+    authFetch(API + "/customers/" + firstShopId).then(r => r.json()),
+    authFetch(API + "/sales/" + firstShopId).then(r => r.json())
   ])
     .then(([productRows, customerRows, saleRows]) => {
       serverProducts = productRows.map(p => ({ ...p, limit: p.lowLimit }));
@@ -63,29 +77,32 @@ function startApp() {
   let editingProductId = null;
 
   function saveProducts() {
-    fetch(API + "/products-sync/" + shopId, {
+    authFetch(API + "/products-sync/" + shopId, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(products.map(p => ({ ...p, lowLimit: p.limit })))
-    }).catch(() => alert("Could not save products. Is the server running?"));
+    }).then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error || "failed"); }); })
+      .catch(err => alert("Could not save products: " + (err.message === "Failed to fetch" ? "server is not running." : err.message)));
   }
 
   function saveCustomers() {
     localStorage.setItem(customerKey, JSON.stringify(customers));
-    fetch(API + "/customers-sync/" + shopId, {
+    authFetch(API + "/customers-sync/" + shopId, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(customers)
-    }).catch(() => alert("Could not save customers. Is the server running?"));
+    }).then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error || "failed"); }); })
+      .catch(err => alert("Could not save customers: " + (err.message === "Failed to fetch" ? "server is not running." : err.message)));
   }
 
   function saveSales() {
     localStorage.setItem(salesKey, JSON.stringify(sales));
-    fetch(API + "/sales-sync/" + shopId, {
+    authFetch(API + "/sales-sync/" + shopId, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(sales)
-    }).catch(() => alert("Could not save sales. Is the server running?"));
+    }).then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error || "failed"); }); })
+      .catch(err => alert("Could not save sales: " + (err.message === "Failed to fetch" ? "server is not running." : err.message)));
   }
 
   const EXPIRY_WARN_DAYS = 7;
@@ -381,7 +398,7 @@ function startApp() {
   function renderStaff() {
     const body = document.getElementById("staffBody");
 
-    fetch(API + "/staff/" + currentUser.id)
+    authFetch(API + "/staff/" + currentUser.id)
       .then(r => r.json())
       .then(myStaff => {
         if (myStaff.length === 0) {
@@ -406,7 +423,7 @@ function startApp() {
 
   function removeStaff(id, name) {
     if (!confirm("Remove " + name + "? They will no longer be able to log in.")) return;
-    fetch(API + "/staff/" + id, { method: "DELETE" })
+    authFetch(API + "/staff/" + id, { method: "DELETE" })
       .then(() => renderStaff());
   }
 
@@ -427,7 +444,7 @@ function startApp() {
       return;
     }
 
-    fetch(API + "/staff", {
+    authFetch(API + "/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ownerId: currentUser.id, name, username, password })

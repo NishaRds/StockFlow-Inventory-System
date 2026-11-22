@@ -1,5 +1,7 @@
 const Database = require('better-sqlite3');
-const db = new Database('stockflow.db');
+
+// Online: set DB_PATH to a folder on a persistent disk, e.g. /data/stockflow.db
+const db = new Database(process.env.DB_PATH || 'stockflow.db');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (

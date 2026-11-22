@@ -1,0 +1,11 @@
+STOCKFLOW - HOW TO RUN
+
+1. Copy your OLD database file  (old folder\backend\stockflow.db)
+   into this folder's  backend  folder.   (Your shop data lives in that file.)
+2. Open a terminal in the  backend  folder and run:
+      npm install
+      node server.js
+   It should print:  Running on port 3000
+3. Open index.html in the browser and LOG IN AGAIN (old logins have no token).
+
+Online later: change the address in config.js only.

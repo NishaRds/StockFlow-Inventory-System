@@ -3,6 +3,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+.jwt-secret
 
 *.log
 npm-debug.log*
