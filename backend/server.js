@@ -197,7 +197,8 @@ app.delete('/api/staff/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(3000, '127.0.0.1', err => {
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', err => {
   if (err) return console.log('ERROR:', err.message);
-  console.log('Running on http://localhost:3000');
+  console.log('Running on port ' + PORT);
 });
