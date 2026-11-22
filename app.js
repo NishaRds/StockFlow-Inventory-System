@@ -501,7 +501,7 @@ function startApp() {
 
     document.getElementById("statProducts").textContent = products.length;
     document.getElementById("statLowStock").textContent = lowStockProducts.length;
-    document.getElementById("statCustomers").textContent = customers.length;
+    document.getElementById("statCustomers").textContent = countCustomersServed();
     document.getElementById("statSales").textContent = money(totalSales);
 
     document.getElementById("alertCount").textContent = lowStockProducts.length;
@@ -1318,6 +1318,28 @@ function startApp() {
     renderCart();
   }
 
+  function removeFromCart(productId) {
+  cart = cart.filter(item => item.productId !== productId);
+  renderCart();
+  updatePaymentFields();
+}
+
+// Counts customers from the bills, so people who were never saved are included
+function countCustomersServed() {
+  const seen = new Set();
+  let walkIns = 0;
+  sales.forEach(sale => {
+    const name = String(sale.customerName || "").trim().toLowerCase();
+    if (sale.customerId) seen.add("id:" + sale.customerId);
+    else if (name && name !== "walk-in customer") seen.add("name:" + name);
+    else walkIns++;
+  });
+  customers.forEach(c => {
+    if (seen.has("id:" + c.id)) seen.delete("name:" + String(c.name || "").trim().toLowerCase());
+  });
+  return seen.size + walkIns;
+}
+
   function renderCart() {
     const area = document.getElementById("cartItems");
 
@@ -1335,6 +1357,12 @@ function startApp() {
     if (cart.length === 0) {
       area.innerHTML = '<p class="empty-note">Your bill is empty.</p>';
       document.getElementById("cartTotal").textContent = money(0);
+      if (cart.length === 0) {
+  area.innerHTML = '<p class="empty-note">Your bill is empty.</p>';
+  document.getElementById("cartTotal").textContent = money(0);
+  updatePaymentFields();      // <-- add this
+  return;
+}
       return;
     }
 
@@ -1358,13 +1386,19 @@ function startApp() {
               <button data-cart-change="${product.id}" data-change="1">+</button>
             </div>
           </div>
-          <span class="cart-line-total" data-line-total="${product.id}">${money(lineTotal)}</span>
+          <div class="cart-right">
+  <span class="cart-line-total" data-line-total="${product.id}">${money(lineTotal)}</span>
+  <button type="button" class="cart-remove-btn" data-cart-remove="${product.id}" title="Remove this item">✕ Remove</button>
+</div>
         </div>
       `;
     }).join("");
 
     document.getElementById("cartTotal").textContent = money(total);
     if (document.getElementById("billPendingPreview")) updatePendingPreview();
+    area.querySelectorAll("[data-cart-remove]").forEach(button => {
+  button.addEventListener("click", () => removeFromCart(button.dataset.cartRemove));
+});
 
     area.querySelectorAll("[data-cart-change]").forEach(button => {
       button.addEventListener("click", () => {
