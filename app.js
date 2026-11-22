@@ -1375,23 +1375,21 @@ function countCustomersServed() {
       const lineTotal = product.price * item.quantity;
       total += lineTotal;
 
-      return `
-        <div class="cart-row">
-          <div>
-            <strong>${escapeHTML(product.name)}</strong>
-            <small>${money(product.price)} each</small>
-            <div class="quantity-controls">
-              <button data-cart-change="${product.id}" data-change="-1">−</button>
-              <input type="number" class="qty-input" min="1" max="${product.qty}" value="${item.quantity}" data-cart-qty="${product.id}">
-              <button data-cart-change="${product.id}" data-change="1">+</button>
-            </div>
-          </div>
-          <div class="cart-right">
-  <span class="cart-line-total" data-line-total="${product.id}">${money(lineTotal)}</span>
-  <button type="button" class="cart-remove-btn" data-cart-remove="${product.id}" title="Remove this item">✕ Remove</button>
-</div>
-        </div>
-      `;
+     return `
+  <div class="cart-row">
+    <button type="button" class="cart-bin-btn" data-cart-remove="${product.id}" title="Remove from bill" aria-label="Remove ${escapeHTML(product.name)} from the bill">🗑</button>
+    <div class="cart-info">
+      <strong>${escapeHTML(product.name)}</strong>
+      <small>${money(product.price)} each</small>
+      <div class="quantity-controls">
+        <button data-cart-change="${product.id}" data-change="-1">−</button>
+        <input type="number" class="qty-input" min="1" max="${product.qty}" value="${item.quantity}" data-cart-qty="${product.id}">
+        <button data-cart-change="${product.id}" data-change="1">+</button>
+      </div>
+    </div>
+    <span class="cart-line-total" data-line-total="${product.id}">${money(lineTotal)}</span>
+  </div>
+`;
     }).join("");
 
     document.getElementById("cartTotal").textContent = money(total);
