@@ -197,6 +197,29 @@ app.delete('/api/staff/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.put('/api/sales-sync/:shopId', (req, res) => {
+  const list = req.body;
+  if (!Array.isArray(list)) return res.status(400).json({ error: 'Send a list' });
+  const shopId = req.params.shopId;
+
+  const save = db.transaction(() => {
+    db.prepare('DELETE FROM sales WHERE shopId = ?').run(shopId);
+    const insert = db.prepare(`INSERT INTO sales (id, shopId, customerId, customerName,
+      customerPhone, items, total, staff, date, paid, paymentType, payments)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    list.forEach(s => {
+      const total = Number(s.total);
+      const paid = s.paid === undefined ? total : Number(s.paid);
+      const payments = s.payments || [{ amount: total, date: s.date }];
+      insert.run(String(s.id), shopId, s.customerId || '', s.customerName || '',
+        s.customerPhone || '', JSON.stringify(s.items || []), total, s.staff || '',
+        s.date, paid, s.paymentType || 'Paid', JSON.stringify(payments));
+    });
+  });
+  save();
+  res.json({ ok: true });
+});
+
 const PORT = process.env.PORT || 3000;
 app.put('/api/customers-sync/:shopId', (req, res) => {
   const list = req.body;

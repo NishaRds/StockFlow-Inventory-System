@@ -3,9 +3,11 @@
 const currentUser = JSON.parse(localStorage.getItem("sf_user") || "null");
 const users = currentUser ? [currentUser] : [];
 
-const API = "http://localhost:3000/api";
+// Change this one line when the backend is hosted online
+const API = window.STOCKFLOW_API || "http://localhost:3000/api";
 let serverProducts = [];
 let serverCustomers = [];
+let serverSales = [];
 
 if (!currentUser) {
   window.location.replace("index.html");
@@ -13,15 +15,18 @@ if (!currentUser) {
   const firstShopId = currentUser.role === "staff" ? currentUser.ownerId : currentUser.id;
   Promise.all([
     fetch(API + "/products/" + firstShopId).then(r => r.json()),
-    fetch(API + "/customers/" + firstShopId).then(r => r.json())
+    fetch(API + "/customers/" + firstShopId).then(r => r.json()),
+    fetch(API + "/sales/" + firstShopId).then(r => r.json())
   ])
-    .then(([productRows, customerRows]) => {
+    .then(([productRows, customerRows, saleRows]) => {
       serverProducts = productRows.map(p => ({ ...p, limit: p.lowLimit }));
       serverCustomers = customerRows;
+      serverSales = saleRows.reverse(); // server sends newest first, app expects oldest first
       startApp();
     })
     .catch(() => alert("Cannot reach the server. Is it running?"));
 }
+
 function safeParseStorage(key, fallback) {
   try { const value = JSON.parse(localStorage.getItem(key) || "null"); return value == null ? fallback : value; }
   catch (error) { console.warn("Invalid localStorage data for", key, error); return fallback; }
@@ -36,15 +41,17 @@ function startApp() {
   const salesKey = "sf_sales_" + shopId;
 
   let products = serverProducts;
-    let customers = serverCustomers;
+  let customers = serverCustomers;
+  let sales = serverSales;
+  // One-time copy of old browser data to the server
   if (customers.length === 0) {
     const oldCustomers = safeParseStorage(customerKey, []);
-    if (Array.isArray(oldCustomers) && oldCustomers.length) {
-      customers = oldCustomers;
-      saveCustomers();
-    }
+    if (Array.isArray(oldCustomers) && oldCustomers.length) { customers = oldCustomers; saveCustomers(); }
   }
-  let sales = safeParseStorage(salesKey, []);
+  if (sales.length === 0) {
+    const oldSales = safeParseStorage(salesKey, []);
+    if (Array.isArray(oldSales) && oldSales.length) { sales = oldSales; saveSales(); }
+  }
   if (!Array.isArray(products)) products = [];
   if (!Array.isArray(customers)) customers = [];
   if (!Array.isArray(sales)) sales = [];
@@ -64,16 +71,21 @@ function startApp() {
   }
 
   function saveCustomers() {
-  localStorage.setItem(customerKey, JSON.stringify(customers));
-  fetch(API + "/customers-sync/" + shopId, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(customers)
-  }).catch(() => alert("Could not save customers. Is the server running?"));
-}
+    localStorage.setItem(customerKey, JSON.stringify(customers));
+    fetch(API + "/customers-sync/" + shopId, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(customers)
+    }).catch(() => alert("Could not save customers. Is the server running?"));
+  }
 
   function saveSales() {
     localStorage.setItem(salesKey, JSON.stringify(sales));
+    fetch(API + "/sales-sync/" + shopId, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sales)
+    }).catch(() => alert("Could not save sales. Is the server running?"));
   }
 
   const EXPIRY_WARN_DAYS = 7;
@@ -1333,27 +1345,35 @@ function startApp() {
     renderCart();
   }
 
-  function removeFromCart(productId) {
-  cart = cart.filter(item => item.productId !== productId);
-  renderCart();
-  updatePaymentFields();
-}
+  window.addEventListener("beforeunload", event => {
+    if (cart.length > 0) { event.preventDefault(); event.returnValue = ""; }
+  });
 
-// Counts customers from the bills, so people who were never saved are included
-function countCustomersServed() {
-  const seen = new Set();
-  let walkIns = 0;
-  sales.forEach(sale => {
-    const name = String(sale.customerName || "").trim().toLowerCase();
-    if (sale.customerId) seen.add("id:" + sale.customerId);
-    else if (name && name !== "walk-in customer") seen.add("name:" + name);
-    else walkIns++;
-  });
-  customers.forEach(c => {
-    if (seen.has("id:" + c.id)) seen.delete("name:" + String(c.name || "").trim().toLowerCase());
-  });
-  return seen.size + walkIns;
-}
+  function removeFromCart(productId) {
+    cart = cart.filter(item => item.productId !== productId);
+    renderCart();
+    if (document.getElementById("billPendingPreview")) updatePaymentFields();
+  }
+
+  // Customers who actually took products: counted from bills, so the number
+  // updates even when the customer was never saved in the Customers list.
+  // Same saved customer / same typed name = 1 customer. Each anonymous
+  // "Walk-in Customer" bill counts as 1 customer.
+  function countCustomersServed() {
+    const seen = new Set();
+    let walkIns = 0;
+    sales.forEach(sale => {
+      const name = String(sale.customerName || "").trim().toLowerCase();
+      if (sale.customerId) seen.add("id:" + sale.customerId);
+      else if (name && name !== "walk-in customer") seen.add("name:" + name);
+      else walkIns++;
+    });
+    // a saved customer billed once by id and once by name should not be counted twice
+    customers.forEach(c => {
+      if (seen.has("id:" + c.id)) seen.delete("name:" + String(c.name || "").trim().toLowerCase());
+    });
+    return seen.size + walkIns;
+  }
 
   function renderCart() {
     const area = document.getElementById("cartItems");
@@ -1372,12 +1392,7 @@ function countCustomersServed() {
     if (cart.length === 0) {
       area.innerHTML = '<p class="empty-note">Your bill is empty.</p>';
       document.getElementById("cartTotal").textContent = money(0);
-      if (cart.length === 0) {
-  area.innerHTML = '<p class="empty-note">Your bill is empty.</p>';
-  document.getElementById("cartTotal").textContent = money(0);
-  updatePaymentFields();      // <-- add this
-  return;
-}
+      if (document.getElementById("billPendingPreview")) updatePendingPreview();
       return;
     }
 
@@ -1390,28 +1405,29 @@ function countCustomersServed() {
       const lineTotal = product.price * item.quantity;
       total += lineTotal;
 
-     return `
-  <div class="cart-row">
-    <button type="button" class="cart-bin-btn" data-cart-remove="${product.id}" title="Remove from bill" aria-label="Remove ${escapeHTML(product.name)} from the bill">🗑</button>
-    <div class="cart-info">
-      <strong>${escapeHTML(product.name)}</strong>
-      <small>${money(product.price)} each</small>
-      <div class="quantity-controls">
-        <button data-cart-change="${product.id}" data-change="-1">−</button>
-        <input type="number" class="qty-input" min="1" max="${product.qty}" value="${item.quantity}" data-cart-qty="${product.id}">
-        <button data-cart-change="${product.id}" data-change="1">+</button>
-      </div>
-    </div>
-    <span class="cart-line-total" data-line-total="${product.id}">${money(lineTotal)}</span>
-  </div>
-`;
+      return `
+        <div class="cart-row">
+          <button type="button" class="cart-bin-btn" data-cart-remove="${product.id}" title="Remove from bill" aria-label="Remove ${escapeHTML(product.name)} from the bill">🗑</button>
+          <div class="cart-info">
+            <strong>${escapeHTML(product.name)}</strong>
+            <small>${money(product.price)} each</small>
+            <div class="quantity-controls">
+              <button data-cart-change="${product.id}" data-change="-1">−</button>
+              <input type="number" class="qty-input" min="1" max="${product.qty}" value="${item.quantity}" data-cart-qty="${product.id}">
+              <button data-cart-change="${product.id}" data-change="1">+</button>
+            </div>
+          </div>
+          <span class="cart-line-total" data-line-total="${product.id}">${money(lineTotal)}</span>
+        </div>
+      `;
     }).join("");
 
     document.getElementById("cartTotal").textContent = money(total);
     if (document.getElementById("billPendingPreview")) updatePendingPreview();
+
     area.querySelectorAll("[data-cart-remove]").forEach(button => {
-  button.addEventListener("click", () => removeFromCart(button.dataset.cartRemove));
-});
+      button.addEventListener("click", () => removeFromCart(button.dataset.cartRemove));
+    });
 
     area.querySelectorAll("[data-cart-change]").forEach(button => {
       button.addEventListener("click", () => {
@@ -1636,6 +1652,24 @@ function countCustomersServed() {
 
   // SALES HISTORY
 
+  // Cancel / return a finished bill: stock goes back and the bill is removed
+  function cancelBill(id) {
+    const sale = sales.find(item => item.id === id);
+    if (!sale) return;
+    if (!confirm(`Cancel bill ${sale.id} (${money(sale.total)})?\nThe items will be added back to stock and the bill will be deleted.`)) return;
+
+    sale.items.forEach(item => {
+      const product = products.find(p => p.id === item.productId);
+      if (product) product.qty = Number(product.qty) + Number(item.quantity);
+    });
+    sales = sales.filter(item => item.id !== id);
+
+    saveProducts();
+    saveSales();
+    renderBilling(); renderDashboard(); renderCustomers(); renderSales();
+    renderProducts();
+  }
+
   function renderSales() {
     const search = document.getElementById("salesSearch").value
       .trim().toLowerCase();
@@ -1678,10 +1712,15 @@ function countCustomersServed() {
             <button class="action-btn" data-view-receipt="${sale.id}">
               View / Print
             </button>
+            ${isStaff ? "" : `<button class="action-btn delete" data-cancel-bill="${sale.id}">Cancel bill</button>`}
           </td>
         </tr>
       `;
     }).join("");
+
+    body.querySelectorAll("[data-cancel-bill]").forEach(button => {
+      button.addEventListener("click", () => cancelBill(button.dataset.cancelBill));
+    });
 
     body.querySelectorAll("[data-view-receipt]").forEach(button => {
       button.addEventListener("click", () => {
