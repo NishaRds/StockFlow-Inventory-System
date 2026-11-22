@@ -1,19 +1,28 @@
 // Demo data for hosting on a free plan where the database is wiped on restart.
-// Only runs when the environment variable DEMO_SEED=true.
-// Demo login:  username  demo   |   password  demo123
+// Runs only when DEMO_SEED=true. The login comes from environment variables,
+// so no password is stored in the code:
+//   SEED_USERNAME   SEED_PASSWORD   SEED_SHOP_NAME
 const bcrypt = require('bcryptjs');
 
 module.exports = function seed(db) {
   if (process.env.DEMO_SEED !== 'true') return;
+
+  const username = (process.env.SEED_USERNAME || '').trim().toLowerCase();
+  const password = process.env.SEED_PASSWORD || '';
+  const shopName = process.env.SEED_SHOP_NAME || 'My Shop';
+  if (!username || password.length < 8) {
+    console.log('Seed skipped: set SEED_USERNAME and SEED_PASSWORD (8+ characters).');
+    return;
+  }
 
   const exists = db.prepare("SELECT id FROM users WHERE id = 'demo'").get();
   if (exists) return;
 
   db.prepare(`INSERT INTO users (id, role, shopName, ownerName, shopType, ownerPhone,
     phone, address, pincode, email, username, password)
-    VALUES ('demo', 'owner', 'Demo General Store', 'Demo Owner', 'General Store',
-    '9999999999', '9999999999', 'Mangaluru', '575001', 'demo@example.com', 'demo', ?)`)
-    .run(bcrypt.hashSync('demo123', 10));
+    VALUES ('demo', 'owner', ?, 'Owner', 'General Store',
+    '9999999999', '9999999999', 'Mangaluru', '575001', ?, ?, ?)`)
+    .run(shopName, username + '@example.com', username, bcrypt.hashSync(password, 10));
 
   const products = [
     ['Rice 1kg', 'Grocery', 60, 100, 15, ''],
@@ -30,5 +39,5 @@ module.exports = function seed(db) {
     VALUES (?, 'demo', ?, ?, ?, ?, ?, ?)`);
   products.forEach((p, i) => insert.run('demo-p' + (i + 1), ...p));
 
-  console.log('Demo data created (login: demo / demo123)');
+  console.log('Seed data created for shop: ' + shopName);
 };
