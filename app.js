@@ -3,22 +3,25 @@
 const currentUser = JSON.parse(localStorage.getItem("sf_user") || "null");
 const users = currentUser ? [currentUser] : [];
 
-const API = "http://127.0.0.1:3000/api";
+const API = "http://localhost:3000/api";
 let serverProducts = [];
+let serverCustomers = [];
 
 if (!currentUser) {
   window.location.replace("index.html");
 } else {
   const firstShopId = currentUser.role === "staff" ? currentUser.ownerId : currentUser.id;
-  fetch(API + "/products/" + firstShopId)
-    .then(r => r.json())
-    .then(rows => {
-      serverProducts = rows.map(p => ({ ...p, limit: p.lowLimit }));
+  Promise.all([
+    fetch(API + "/products/" + firstShopId).then(r => r.json()),
+    fetch(API + "/customers/" + firstShopId).then(r => r.json())
+  ])
+    .then(([productRows, customerRows]) => {
+      serverProducts = productRows.map(p => ({ ...p, limit: p.lowLimit }));
+      serverCustomers = customerRows;
       startApp();
     })
     .catch(() => alert("Cannot reach the server. Is it running?"));
 }
-
 function safeParseStorage(key, fallback) {
   try { const value = JSON.parse(localStorage.getItem(key) || "null"); return value == null ? fallback : value; }
   catch (error) { console.warn("Invalid localStorage data for", key, error); return fallback; }
@@ -33,7 +36,14 @@ function startApp() {
   const salesKey = "sf_sales_" + shopId;
 
   let products = serverProducts;
-  let customers = safeParseStorage(customerKey, []);
+    let customers = serverCustomers;
+  if (customers.length === 0) {
+    const oldCustomers = safeParseStorage(customerKey, []);
+    if (Array.isArray(oldCustomers) && oldCustomers.length) {
+      customers = oldCustomers;
+      saveCustomers();
+    }
+  }
   let sales = safeParseStorage(salesKey, []);
   if (!Array.isArray(products)) products = [];
   if (!Array.isArray(customers)) customers = [];
@@ -54,8 +64,13 @@ function startApp() {
   }
 
   function saveCustomers() {
-    localStorage.setItem(customerKey, JSON.stringify(customers));
-  }
+  localStorage.setItem(customerKey, JSON.stringify(customers));
+  fetch(API + "/customers-sync/" + shopId, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(customers)
+  }).catch(() => alert("Could not save customers. Is the server running?"));
+}
 
   function saveSales() {
     localStorage.setItem(salesKey, JSON.stringify(sales));

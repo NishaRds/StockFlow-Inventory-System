@@ -198,6 +198,19 @@ app.delete('/api/staff/:id', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+app.put('/api/customers-sync/:shopId', (req, res) => {
+  const list = req.body;
+  if (!Array.isArray(list)) return res.status(400).json({ error: 'Send a list' });
+  const shopId = req.params.shopId;
+
+  const save = db.transaction(() => {
+    db.prepare('DELETE FROM customers WHERE shopId = ?').run(shopId);
+    const insert = db.prepare('INSERT INTO customers (id, shopId, name, phone) VALUES (?, ?, ?, ?)');
+    list.forEach(c => insert.run(String(c.id), shopId, c.name, c.phone || ''));
+  });
+  save();
+  res.json({ ok: true });
+});
 app.listen(PORT, '0.0.0.0', err => {
   if (err) return console.log('ERROR:', err.message);
   console.log('Running on port ' + PORT);
